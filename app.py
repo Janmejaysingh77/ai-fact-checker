@@ -6,10 +6,10 @@ import json
 # Page config
 st.set_page_config(page_title="Fact-Check Agent", page_icon="🔍", layout="wide")
 
-st.title("🔍 Automated "Fact-Check" Agent")
+st.title("🔍 Automated Fact-Check Agent")
 st.caption("Upload a PDF to extract claims and verify them against live web data.")
 
-# Sidebar for API Key (Testing ke liye, Streamlit Secrets mein bhi daal sakte hain)
+# Sidebar for API Key
 st.sidebar.header("Configuration")
 api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
 
@@ -27,19 +27,20 @@ else:
             reader = PdfReader(uploaded_file)
             extracted_text = ""
             for page in reader.pages:
-                extracted_text += page.extract_text() + "\n"
+                text = page.extract_text()
+                if text:
+                    extracted_text += text + "\n"
         
         st.success("Text extracted successfully!")
         
         # Expandable window to see raw text if needed
         with st.expander("View Extracted Text"):
-            st.text(extracted_text[:1000] + "...") # showing first 1000 chars
+            st.text(extracted_text[:1000] + "...")
 
         # Run Verification Button
         if st.button("Start Automated Fact-Checking", type="primary"):
             with st.spinner("Analyzing claims and cross-referencing with live web data..."):
                 
-                # System Prompt instructing the LLM to act as a strict Fact-Checker with web browsing
                 system_instruction = (
                     "You are an expert Fact-Checking Agent ('Truth Layer'). Your job is to read the provided text, "
                     "extract explicit claims (stats, dates, financial/technical figures), and verify them against the live web. "
@@ -55,10 +56,8 @@ else:
                 )
 
                 try:
-                    # Calling OpenAI API with internet search capabilities simulated or enabled via model capacity
-                    # Note: Using gpt-4o or gpt-4o-mini which has updated knowledge. 
                     response = client.chat.completions.create(
-                        model="gpt-4o", # gpt-4o supports high-quality search/grounding synthesis
+                        model="gpt-4o",
                         messages=[
                             {"role": "system", "content": system_instruction},
                             {"role": "user", "content": f"Verify this text:\n\n{extracted_text}"}
@@ -68,13 +67,11 @@ else:
                     
                     raw_result = response.choices[0].message.content.strip()
                     
-                    # Clean up just in case LLM adds markdown blocks
-                    if raw_result.startswith("
-```json"):
-                        raw_result = raw_result.replace("```json", "").replace("```", "").strip()
+                    # Clean up markdown formatting if LLM includes it
+                    if raw_result.startswith("```json"):
+                        raw_result = raw_result.replace("```json", "", 1).rstrip("`").strip()
                     elif raw_result.startswith("```"):
-                        raw_result = raw_result.replace("
-```", "").strip()
+                        raw_result = raw_result.replace("```", "", 1).rstrip("`").strip()
 
                     # Parsing the JSON output
                     results_json = json.loads(raw_result)
@@ -85,7 +82,6 @@ else:
                     for idx, item in enumerate(results_json):
                         status = item.get('status', 'False')
                         
-                        # Color coding based on status
                         if status == 'Verified':
                             color_emoji = "🟢 [Verified]"
                         elif status == 'Inaccurate':
@@ -100,5 +96,8 @@ else:
                             st.markdown(f"**Source Context:** {item.get('source')}")
                             st.write("---")
                             
+                except json.JSONDecodeError:
+                    st.error("Failed to parse the response from the agent. Raw output:")
+                    st.code(raw_result)
                 except Exception as e:
                     st.error(f"An error occurred: {str(e)}")
